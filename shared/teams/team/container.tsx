@@ -54,7 +54,7 @@ const Connected = Container.compose(
       ...(Container.isMobile ? [{data: [{type: 'header' as const}], key: 'header'}] : []),
       {data: rows, header: {type: 'tabs'}, key: 'body'},
     ]
-    const customComponent = <CustomTitle teamname={stateProps._teamnameTodoRemove} />
+    const customComponent = <CustomTitle teamID={stateProps.teamID} />
     return {
       customComponent,
       load: () => dispatchProps._loadTeam(stateProps._teamnameTodoRemove),
