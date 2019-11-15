@@ -6,7 +6,7 @@ import (
 	"time"
 
 	keybase1 "github.com/keybase/client/go/protocol/keybase1"
-	"github.com/keybase/clockwork"
+	clockwork "github.com/keybase/clockwork"
 	"github.com/stretchr/testify/require"
 	context "golang.org/x/net/context"
 )
@@ -75,7 +75,7 @@ func TestIdentify3State(t *testing.T) {
 	tc.G.SetClock(fakeClock)
 	uiRouter := id3FakeUIRouter{}
 	tc.G.UIRouter = &uiRouter
-	tc.G.Identify3State.Shutdown()
+	tc.G.Identify3State.Shutdown(NewMetaContextForTest(tc))
 
 	id3state, testCompletionCh := NewIdentify3StateForTest(tc.G)
 	tc.G.Identify3State = id3state
@@ -160,4 +160,50 @@ func TestIdentify3State(t *testing.T) {
 	advance(inc)
 	assertState([]int{}, []int{})
 	uiRouter.ui.assertAndCleanState(t, []keybase1.Identify3GUIID{})
+}
+
+func TestIdentify3StateShutdown(t *testing.T) {
+	tc := SetupTest(t, "TestIdentify3State()", 1)
+	defer tc.Cleanup()
+
+	fakeClock := clockwork.NewFakeClock()
+	tc.G.SetClock(fakeClock)
+	// throwaway the existing Identify3State on tc.G
+	tc.G.Identify3State.Shutdown(NewMetaContextForTest(tc))
+
+	// make a new "test" one
+	id3state, testCompletionCh := NewIdentify3StateForTest(tc.G)
+	tc.G.Identify3State = id3state
+
+	advance := func(d time.Duration) {
+		id3state.bgThreadTimeMu.Lock()
+		defer id3state.bgThreadTimeMu.Unlock()
+		fakeClock.Advance(d)
+	}
+
+	// advance the clock and empty the test channel
+	advance(1*time.Hour + 1*time.Second)
+	for len(testCompletionCh) > 0 {
+		<-testCompletionCh
+	}
+	require.Equal(t, 0, len(testCompletionCh), "test channel is empty")
+
+	// shut down Identify3State through the global shutdown
+	err := tc.G.Shutdown(NewMetaContextForTest(tc))
+	require.NoError(t, err)
+	if len(testCompletionCh) == 1 {
+		// it's possible there's something in the channel
+		// from the moment of shutdown, and this doesn't matter
+		// so just throw it away.
+		_ = <-testCompletionCh
+	}
+
+	// but now, the testCompletionCh should be empty even if we
+	// advance the fake clock and the real clock a few times
+	for i := 0; i < 3; i++ {
+		advance(1*time.Hour + 1*time.Second)
+		time.Sleep(100 * time.Microsecond)
+		advance(1*time.Hour + 1*time.Second)
+		require.Equal(t, 0, len(testCompletionCh), "Identity3State may not have actually shut down")
+	}
 }
